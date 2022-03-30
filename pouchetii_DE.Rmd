@@ -1,0 +1,1086 @@
+---
+title: "pouchetii_DE"
+author: "Maggi Brisbin"
+date: "2/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# load packages
+
+```{r packages, warning=FALSE, message=FALSE}
+library(readr)
+library(tximport)
+library(ggplot2)
+library(DESeq2)
+library(wesanderson)
+library(pheatmap)
+library(stringi)
+library(tidyverse)
+library(edgeR)
+library(GOstats)
+library(GSEABase)
+library(scales)
+library(ggrepel)
+library(shiny)
+library(plotly)
+library(reshape2)
+library(data.table)
+library(jsonlite)
+library(knitr)
+library(pathview)
+
+`%ni%` = Negate(`%in%`)
+```
+
+# Sequence QC
+
+Reads per sample , pre/post trimming, total reads
+
+## Transcriptome assembly stats
+
+################################
+Counts of transcripts, etc.
+################################
+Total trinity 'genes':	63554
+Total trinity transcripts:	63555
+Percent GC: 67.68
+
+########################################
+Stats based on ALL transcript contigs:
+########################################
+
+	Contig N10: 2256
+	Contig N20: 1647
+	Contig N30: 1335
+	Contig N40: 1110
+	Contig N50: 927
+
+	Median contig length: 519
+	Average contig: 731.77
+	Total assembled bases: 46507722
+
+
+## percent mapping to assembly
+
+```{r mapping_rate_kable, message = FALSE, warning=FALSE}
+sample_names<- c("L11", "L12", "L13", "NON1", "NON2", "NON3", "NOP11", "NOP12","NOP2", "NOP3")
+
+mapping_rates<- c(fromJSON("salmon/L11_S24_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/L12_S25_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/L13_S23_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/NON1_S20_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/NON2_S21_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/NON3_S26_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/NOP11_S22_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/NOP12_S29_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/NOP2_S27_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("salmon/NOP3_S28_L004/aux_info/meta_info.json")$percent_mapped
+)
+
+library(kableExtra)
+
+mappingrate_df<- data.frame("Sample" = sample_names, "Mapping Rate" = round(mapping_rates, digits=2))
+
+kable(mappingrate_df, table.attr = "style = \"color: black;\"") %>% 
+  kable_styling(font_size = 12, position = "left", full_width = FALSE)  %>% kable_styling("striped") %>% kable_styling(latex_options = "scale_down")
+
+```
+
+# Bacteria Seqs:
+
+
+## Mapping Rate 
+
+```{r bacterial_mapping_rate_kable}
+bact_mapping_rates<- c(fromJSON("bact_salmon/L11_S24_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/L12_S25_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/L13_S23_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/NON1_S20_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/NON2_S21_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/NON3_S26_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/NOP11_S22_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/NOP12_S29_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/NOP2_S27_L004/aux_info/meta_info.json")$percent_mapped,
+fromJSON("bact_salmon/NOP3_S28_L004/aux_info/meta_info.json")$percent_mapped
+)
+
+library(kableExtra)
+
+bact_mappingrate_df<- data.frame("Sample" = sample_names, "Mapping Rate" = round(bact_mapping_rates, digits=2))
+
+kable(bact_mappingrate_df, table.attr = "style = \"color: black;\"") %>% 
+  kable_styling(font_size = 12, position = "left", full_width = FALSE)  %>% kable_styling("striped") %>% kable_styling(latex_options = "scale_down")
+```
+## Taxonomy 
+
+```{r bacterial_seqs_eukulele_results, message=FALSE, warning=FALSE}
+eukulele <- read.delim("Trinity_longestIsos_clustered95_transdecoder-estimated-taxonomy.out") %>% separate(full_classification, into = "domain", remove = FALSE)
+
+bact<- (eukulele %>% filter(domain == "Bacteria") )[-1] %>% separate(full_classification, into= c("kingdom", "phylum", "class", "order", "family", "genus", "species"), sep = ";", remove = FALSE) %>% 
+  mutate(order = case_when(is.na(order) ~ class,
+                              TRUE ~ order)) %>% 
+  mutate(order = case_when(is.na(order) ~ phylum,
+                              TRUE ~ order))
+
+bact4merge <- bact %>% select(transcript_name, order)
+names(bact4merge) <- c("Name", "order")
+
+```
+
+```{r bactseqs_salmonresults}
+tpm <- read.delim("bact_salmon/salmon.merged.tpm")
+readnums <- read.delim("bact_salmon/salmon.merged.numreads")
+
+names(tpm) <- c("Name", "NoP_2" , "NoN_1" , "NoP_1.2", "NoP_1.1", "NoN_3" , "L1_2"  , "NoN_2" , "L1_1",   "NoP_3","L1_3")
+
+readsWtax <- merge(bact4merge, tpm)
+
+readsTax_Summarized<- readsWtax %>% select(!Name) %>% group_by(order) %>% summarise(across(everything(), sum))  %>%  mutate_at(vars(-order), funs(./sum(.) *100)) 
+
+```
+
+```{r bactseqs_taxonomy_barplot}
+library(tidyr)
+
+red<- c("#EB8B8E","#FBD5E2","#E7B6AF","#AC6873", "#D82354")
+orange <- c("#FAAA6D","#FECF92")
+yellow <- c("#FFC317","#F7F4B7", "#CC9C3C")
+green <- c("#16866F","#1E3F1C","#99A339","#516A65","#8BC89F")
+blue <- c("#005694","#B7E1DD","#66879E","#1BAAE2","#5FC8D8")
+purple <- c("#E7D7CE","#A699A9","#434582","#81347D", "#B5218E")
+colors30 <- c(blue, purple, red, yellow, green, "black") 
+
+longSp<- tidyr::pivot_longer(readsTax_Summarized, !order, names_to = "Sample", values_to = "Relative_Abundance") 
+
+
+longSp$order[longSp$Relative_Abundance < .1] <- "z< 10% abund."
+
+longSp %>% ggplot(aes(x = Sample, y = Relative_Abundance, fill = order)) + geom_bar(position="fill", stat="identity") + theme_test() + scale_fill_manual(values = rep(colors30, 3)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+## Function
+
+```{r bact_ko_results}
+
+bactKO <- read.csv("bactseqs_ko.csv")
+```
+
+```{r bact_KO2pathway, results='hide', message = FALSE, warning = FALSE}
+# koslist<- bactKO$ko
+# paths <- character(length=0)
+# 
+# for(i in 1:length(koslist)) {
+#    pathway <- system(paste0("curl http://rest.kegg.jp/link/pathway/", koslist[[i]]), intern=TRUE)
+#     if (length(pathway) == 0) {
+#       paths[[i]]<- "NA"
+#     } else if (length(pathway) == 1) {
+#       paths[[i]] <- stri_sub(pathway[[1]], 16)
+#     } else {
+#       l <- length(pathway)
+#       paths[[i]] <- stri_sub(pathway[[2]], 16)
+#     }
+#   }
+# 
+# bactKO$path<-paths
+
+```
+
+```{r bact_KOpath_name_class, results='hide', message = FALSE, warning = FALSE}
+# ko_paths <- bactKO$path
+# name <- character(length=0)
+# class <- character(length=0) 
+# 
+# for(i in 1:length(ko_paths)) {
+#   if (ko_paths[[i]] %ni% c("NA", "")) {
+#     pathway <- system(paste0("curl http://rest.kegg.jp/get/", ko_paths[[i]]), intern=TRUE)
+#     name[[i]] <- pathway[[2]]
+#     class[[i]] <-pathway[[3]]
+#   }
+#   else {
+#     name[[i]] <- "NA"
+#     class[[i]] <- "NA"
+#   }
+# }
+# 
+# bactKO$pathname <- name
+# bactKO$pathclass <- class
+```
+
+```{r writeRead_bactKeggPathwaysCSV}
+# write.csv(bactKO, "bactKO.csv", row.names = FALSE)
+bactKO <- read.csv("bactKO.csv")
+```
+
+add tax to function frame:
+
+```{r mergebactDFs}
+readsWtaxT <- merge(bact4merge, tpm)
+
+names(readsWtaxT)[1] <- "trinity"
+
+kotax <- merge(bactKO,readsWtaxT , by = "trinity" )
+
+kotax$pathname <- gsub('NAME', '', kotax$pathname)
+kotax$pathname <- trimws(kotax$pathname, which = c("both"))
+
+```
+
+
+what organisms are annotated? 
+```{r annotatedtaxa_barplot}
+kotax_annotated <- kotax %>% filter(pathname != "NA") 
+
+kotax_annotated_Summarized<- kotax_annotated %>% select( -one_of("trinity", "ko", "path", "pathname", "pathclass" )) %>% group_by(order) %>% summarise(across(everything(), sum))  %>%  mutate_at(vars(-order), funs(./sum(.) *100)) 
+
+longSp_ANNOTATED<- tidyr::pivot_longer(kotax_annotated_Summarized, !order, names_to = "Sample", values_to = "Relative_Abundance") 
+
+longSp_ANNOTATED %>% ggplot(aes(x = Sample, y = Relative_Abundance, fill = order)) + geom_bar(position="fill", stat="identity") + theme_test() + scale_fill_manual(values = rep(colors30, 3)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+what functions per sample?
+
+
+```{r FunctionsBarplot}
+#kotax_annotated <- kotax %>% filter(pathname != "NA") 
+kotax_function_Summarized<- kotax %>% select( -one_of("trinity", "ko", "path", "order", "pathclass" )) %>% group_by(pathname) %>% summarise(across(everything(), sum))  %>%  mutate_at(vars(-pathname), funs(./sum(.) *100)) 
+
+longSp_ANNOTATED<- tidyr::pivot_longer(kotax_function_Summarized, !pathname, names_to = "Sample", values_to = "Relative_Abundance") 
+
+longSp_ANNOTATED %>% ggplot(aes(x = Sample, y = Relative_Abundance, fill = pathname)) + geom_bar(position="fill", stat="identity") + theme_test() + scale_fill_manual(values = rep(colors30, 3)) + theme(legend.position ="none")
+```
+```{r functionsBarPlot_annotatedOnly}
+#kotax_annotated <- kotax %>% filter(pathname != "NA") 
+kotax_function_Summarized<- kotax %>% filter(pathname != "NA")%>% select( -one_of("trinity", "ko", "path", "order", "pathclass" )) %>% group_by(pathname) %>% summarise(across(everything(), sum))  %>%  mutate_at(vars(-pathname), funs(./sum(.) *100)) 
+
+longSp_ANNOTATED<- tidyr::pivot_longer(kotax_function_Summarized, !pathname, names_to = "Sample", values_to = "Relative_Abundance") 
+
+#longSp$Station <- factor(longSp$Station, levels = st_levels)
+
+functionbarplot<- longSp_ANNOTATED %>% ggplot(aes(x = Sample, y = Relative_Abundance, fill = pathname)) + geom_bar(position="fill", stat="identity") + theme_test() + scale_fill_manual(values = rep(colors30, 3)) 
+
+functionbarplot + theme(legend.position ="none")
+```
+
+```{r functionsbarplot_legend }
+library(ggpubr)
+
+# Extract the legend. Returns a gtable
+leg <- get_legend(functionbarplot)
+
+# Convert to a ggplot and print
+as_ggplot(leg)
+
+```
+
+
+Remove low abundance paths for maybe easier viewing
+
+```{r functionsBarplot_lowabundanceAggregated}
+#kotax_annotated <- kotax %>% filter(pathname != "NA") 
+kotax_function_Summarized<- kotax %>% filter(pathname != "NA")%>% select( -one_of("trinity", "ko", "path", "order", "pathclass" )) %>% group_by(pathname) %>% summarise(across(everything(), sum))  %>%  mutate_at(vars(-pathname), funs(./sum(.) *100)) 
+
+longSp_ANNOTATED<- tidyr::pivot_longer(kotax_function_Summarized, !pathname, names_to = "Sample", values_to = "Relative_Abundance") 
+
+
+longSp_ANNOTATED$pathname[longSp_ANNOTATED$Relative_Abundance < .1] <- "z< 10% abund."
+
+functionbarplot<- longSp_ANNOTATED %>% ggplot(aes(x = Sample, y = Relative_Abundance, fill = pathname)) + geom_bar(position="fill", stat="identity") + theme_test() + scale_fill_manual(values = rep(colors30, 3)) 
+
+functionbarplot + theme(legend.position ="none")
+```
+
+
+```{r functionsBarplot_lowabundanceAggregated_legend}
+leg <- get_legend(functionbarplot)
+as_ggplot(leg)
+```
+
+# DESEQ
+
+## Import Samlmon Quants
+```{r import_salmonquant, message=FALSE, warning=FALSE}
+samples<-read.table("salmon/samples.txt", header = TRUE)
+files <- file.path("salmon", samples$run, "quant.sf")
+names(files) <- samples$run
+tx2gene <- read_csv("salmon/tx2gene.csv")
+txi <- tximport(files, type="salmon", tx2gene= tx2gene)
+
+ddsTxi <- DESeqDataSetFromTximport(txi,
+                                   colData = samples,
+                                   design = ~ condition)
+
+keep <- rowSums(counts(ddsTxi )) >= 10
+dds <- ddsTxi[keep,]
+dds$condition <- relevel(dds$condition, ref = "L1")
+dds <- DESeq(ddsTxi)
+```
+
+# No Phosphate Treatment v. Control
+
+```{r noP_deseq_results}
+res_NoP<- results(dds, contrast=c("condition","NoP","L1"), alpha=0.01)
+head(res_NoP, n =3)
+```
+
+```{r noP_deseq_summary}
+summary(res_NoP)
+```
+
+```{r noP_volcanoplot}
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(res_NoP, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-10,10)))
+
+# Add colored points: blue if padj<0.01, red if log2FC>1 and padj<0.05)
+with(subset(res_NoP, padj<.01 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(res_NoP, padj<.01 & abs(log2FoldChange)>2), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+```
+
+MA-plot 
+```{r noP_MAplot}
+DESeq2::plotMA(res_NoP, ylim=c(-10,10))
+```
+
+
+```{r noP_sigDE_dataframe}
+res_NoP_df <- data.frame(res_NoP) %>% filter(log2FoldChange <= -1 | log2FoldChange >= 1) %>% filter(padj < 0.01)
+res_NoP_df$trinity <- row.names(res_NoP_df)
+```
+
+## Pfam Annotations
+
+```{r import_Pfams}
+pfamannot<- read.csv("pfam.csv")[,-1]
+pfamannot$Dbxref <- stri_sub(pfamannot$Dbxref , from = 2, to = -2)
+pfamannot$Pfam <- gsub("\\..*","", pfamannot$Dbxref)
+dim(pfamannot)
+
+trinity2dammit <- read.csv("Pouch_Trinity_transdecoder_decontam.fasta.dammit/Pouch_Trinity_transdecoder_decontam.fasta.dammit.namemap.csv") %>% separate(original, c("trinity"), sep = " ") 
+names(trinity2dammit) <- c("trinity", "seqid")
+
+pfamannot<- merge(pfamannot, trinity2dammit, by = "seqid")
+
+res_NoP_df_pfam <-merge(res_NoP_df, pfamannot, by = "trinity") 
+```
+
+## Pfam to GO
+
+```{r import_Pfam2GO}
+library(readr)
+pfam2go <- fread("https://raw.githubusercontent.com/maggimars/PcordataSymbiosisDGE/master/pfam2go4R.txt", header = FALSE) %>%
+  separate(V1, c('V1_1', 'V1_2'), sep = '>') %>%
+  separate(V1_1, c("Pfam", "name"), sep = " ") %>%
+  separate(V1_2, c("GO_desc"), sep = ";")
+
+pfam2go$GO <-stri_sub(pfam2go$V2, from = 4)
+```
+
+transcript to GO ref
+
+```{r format_pfam2go_dataframe}
+pfamGO <- merge(pfamannot, pfam2go, by = "Pfam") 
+
+pfamUP <- res_NoP_df_pfam[res_NoP_df_pfam$log2FoldChange >0,]
+
+pfamUPgo <- merge(pfamUP, pfamGO, by = "trinity")
+
+length(unique(pfamUPgo$trinity))
+length(unique(pfamUPgo$GO))
+```
+
+## GO enrichment:
+
+```{r formatGOs_forGoStats, warning = FALSE, message = FALSE}
+GOdf <- data.frame(pfamGO$trinity, pfamGO$V2)
+GOdf$evidence <- "ISS"
+names(GOdf) <- c("isoform", "GO", "evidence")
+#reorder columns
+GOdf <- GOdf[,c("GO","evidence","isoform")]  
+GOdf$GO <- as.character(GOdf$GO)
+GOdf$isoform<- as.character(GOdf$isoform)
+goframe=GOFrame(GOdf)
+goAllFrame=GOAllFrame(goframe)
+gsc <- GeneSetCollection(goAllFrame, setType = GOCollection())
+```
+
+universe, up, down
+
+```{r makeUniverse_GoEnrichment}
+#make list of all genes
+universe <-trinity2dammit$trinity 
+#make list of upregulated genes
+uplist <- res_NoP_df$trinity
+#make list of downregulated genes
+#sigDEdown<- sigDEgenes[sigDEgenes$log2FoldChange <0,]
+#downlist <- sigDEdown$trinity
+```
+
+up test
+
+```{r UPinP_GOenrichment}
+upregulated = hyperGTest(
+  GSEAGOHyperGParams(name = "Phos Lim Upregged",
+                     geneSetCollection=gsc,geneIds = uplist,
+                     universeGeneIds=universe,ontology = "BP",pvalueCutoff = 0.05,conditional = TRUE,testDirection = "over"))
+
+upregulated
+```
+
+```{r}
+htmlReport(upregulated, file="NoP_enriched_up_go.html")
+```
+
+## blastP to phosphorous genes
+
+```{r}
+APhits <- read.csv("APhits.csv", header = FALSE)
+
+names(APhits) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
+
+APhits <- APhits %>%  filter(pident > 50)
+
+names(APhits)[1] <- "trinity"
+  
+APhitswDE <- merge(res_NoP_df, APhits, by = "trinity") %>% filter(padj < 0.01) %>% filter(log2FoldChange <= -1 | log2FoldChange >= 1)
+```
+
+
+
+
+```{r}
+PhosMetab <- read.csv("PhosMetabhits.csv", header = FALSE)
+
+names(PhosMetab) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
+```
+
+lots of hits
+cut off at e-30
+
+```{r}
+PhosBest <- PhosMetab %>% filter(evalue <= 1e-30)
+
+PhosBestID<- PhosBest %>% 
+    group_by(qseqid) %>% 
+    slice(which.max(pident)) %>% filter(pident >=60)
+
+
+names(PhosBestID)[1] <- "trinity"
+  
+PhosBestIDwDE <- merge(res_NoP_df, PhosBestID, by = "trinity")
+```
+
+
+
+## Kegg 
+
+```{r importKeggResults}
+kegg <- read.csv("user_ko.csv")
+```
+
+```{r KO2pathways}
+koslist<- kegg$KO
+# paths <- character(length=0)
+# for(i in 1:length(koslist)) {
+#   pathway <- system(paste0("curl http://rest.kegg.jp/link/pathway/", koslist[[i]]), intern=TRUE)
+#    if (length(pathway) == 0) {
+#      paths[[i]]<- "NA"
+#    } else if (length(pathway) == 1) {
+#      paths[[i]] <- stri_sub(pathway[[1]], 16)
+#    } else {
+#      l <- length(pathway)
+#      paths[[i]] <- stri_sub(pathway[[2]], 16)
+#    }
+#  }
+# kegg$path<-paths
+
+## pathway ids 
+
+#write.csv(kegg, "trinity_KO_pathway.csv")
+kegg <- read.csv("trinity_KO_pathway.csv")
+```
+
+no NAs
+
+```{r formatKeggPathways}
+kegg_noNA <- kegg %>% filter(path != "NA") %>%  filter(path!= "")
+names(kegg_noNA)[1] <- "trinity"
+res_NoP_df <- data.frame(res_NoP)
+res_NoP_df$trinity <- row.names(res_NoP_df)
+res_NoP_wKegg <- merge(res_NoP_df, kegg_noNA)
+```
+
+prep pathway lists
+
+```{r}
+KOs_up <- res_NoP_wKegg %>% filter(log2FoldChange >= 1 & padj < 0.01) %>% select(KO)
+
+KOs_down <- res_NoP_wKegg %>% filter(log2FoldChange <= -1 & padj < 0.01) %>% select(KO)
+
+genepathways <- kegg_noNA %>% select(trinity, path)
+names(genepathways) <- c("geneID", "pathwayID")
+
+universelist <- genepathways$geneID
+universelist<-as.vector(universelist)
+length(universelist)
+```
+
+kegga
+
+UP
+
+```{r}
+de<- res_NoP_wKegg %>% filter(log2FoldChange >= 1 & padj < 0.01) %>% select(trinity)
+
+de <- as.vector(de$trinity)
+
+keggUP<-kegga(de, universe = universelist, species = NULL, species.KEGG = NULL, convert = FALSE,
+              gene.pathway = genepathways, pathway.names = NULL,
+              prior.prob = NULL, covariate=NULL, plot=FALSE)
+
+names(keggUP) <- c("Pathway", "N", "DE" , "p")
+keggUP$Pathway<-row.names(keggUP)
+
+KeggUpsig<- keggUP[keggUP$p < 0.05,]
+
+kosup<- row.names(KeggUpsig)
+name <- character(length=0)
+class <- character(length=0) 
+
+for(i in 1:length(kosup)) {
+  pathway <- system(paste0("curl http://rest.kegg.jp/get/", kosup[[i]]), intern=TRUE)
+  name[[i]] <- pathway[[2]]
+  class[[i]] <-pathway[[3]]
+}
+
+KeggUpsig$name <- name
+KeggUpsig$class <- class
+
+kable(KeggUpsig[,c(2:5)], table.attr = "style = \"color: black;\"") %>% 
+  kable_styling(font_size = 12, position = "left", full_width = FALSE)  %>% kable_styling("striped") %>% kable_styling(latex_options = "scale_down")
+
+```
+
+DOWN
+
+```{r}
+de<- res_NoP_wKegg %>% filter(log2FoldChange <= 1 & padj < 0.01) %>% select(trinity)
+
+de <- as.vector(de$trinity)
+
+keggDOWN<-kegga(de, universe = universelist, species = NULL, species.KEGG = NULL, convert = FALSE,
+              gene.pathway = genepathways, pathway.names = NULL,
+              prior.prob = NULL, covariate=NULL, plot=FALSE)
+
+names(keggDOWN) <- c("Pathway", "N", "DE" , "p")
+keggDOWN$Pathway<-row.names(keggDOWN)
+
+KeggDOWNsig<- keggDOWN[keggDOWN$p < 0.05,]
+
+kosdown<- row.names(KeggDOWNsig)
+name <- character(length=0)
+class <- character(length=0) 
+
+for(i in 1:length(kosdown)) {
+  pathway <- system(paste0("curl http://rest.kegg.jp/get/", kosdown[[i]]), intern=TRUE)
+  name[[i]] <- pathway[[2]]
+  class[[i]] <-pathway[[3]]
+}
+
+KeggDOWNsig$name <- name
+KeggDOWNsig$class <- class
+
+kable(KeggDOWNsig[,c(2:5)], table.attr = "style = \"color: black;\"") %>% 
+  kable_styling(font_size = 12, position = "left", full_width = FALSE)  %>% kable_styling("striped") %>% kable_styling(latex_options = "scale_down")
+
+```
+
+# No Nitrate v. Control
+
+```{r}
+res_NoN<- results(dds, contrast=c("condition","NoN","L1"), alpha=0.01)
+head(res_NoN, n =3)
+```
+
+```{r}
+summary(res_NoN)
+```
+
+```{r}
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(res_NoN, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-10,10)))
+
+# Add colored points: blue if padj<0.01, red if log2FC>1 and padj<0.05)
+with(subset(res_NoN, padj<.01 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(res_NoN, padj<.01 & abs(log2FoldChange)>2), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+```
+
+```{r}
+res_NoN_df<- as.data.frame(res_NoN)
+res_NoN_df$trinity<- row.names(res_NoN_df)
+
+res_NoN_wKegg <- merge(res_NoN_df, kegg_noNA, by = "trinity")
+
+```
+
+## Kegg enrichment for UPregulated genes
+
+```{r, message = FALSE, warning = FALSE}
+de<- res_NoN_wKegg %>% filter(log2FoldChange >= 1 & padj < 0.01) %>% select(trinity)
+
+de <- as.vector(de$trinity)
+
+keggUP<-kegga(de, universe = universelist, species = NULL, species.KEGG = NULL, convert = FALSE,
+              gene.pathway = genepathways, pathway.names = NULL,
+              prior.prob = NULL, covariate=NULL, plot=FALSE)
+
+names(keggUP) <- c("Pathway", "N", "DE" , "p")
+keggUP$Pathway<-row.names(keggUP)
+
+KeggUpsig<- keggUP[keggUP$p < 0.05,]
+
+kosup<- row.names(KeggUpsig)
+name <- character(length=0)
+class <- character(length=0) 
+
+for(i in 1:length(kosup)) {
+  pathway <- system(paste0("curl http://rest.kegg.jp/get/", kosup[[i]]), intern=TRUE)
+  name[[i]] <- pathway[[2]]
+  class[[i]] <-pathway[[3]]
+}
+
+KeggUpsig$name <- name
+KeggUpsig$class <- class
+
+kable(KeggUpsig[,c(2:5)], table.attr = "style = \"color: black;\"") %>% 
+  kable_styling(font_size = 12, position = "left", full_width = FALSE)  %>% kable_styling("striped") %>% kable_styling(latex_options = "scale_down")
+```
+
+## Kegg enrichment for DOWNregulated genes
+
+```{r, warning=FALSE, message=FALSE}
+de<- res_NoN_wKegg %>% filter(log2FoldChange <= 1 & padj < 0.01) %>% select(trinity)
+
+de <- as.vector(de$trinity)
+
+keggDOWN<-kegga(de, universe = universelist, species = NULL, species.KEGG = NULL, convert = FALSE,
+              gene.pathway = genepathways, pathway.names = NULL,
+              prior.prob = NULL, covariate=NULL, plot=FALSE)
+
+names(keggDOWN) <- c("Pathway", "N", "DE" , "p")
+keggDOWN$Pathway<-row.names(keggDOWN)
+
+KeggDOWNsig<- keggDOWN[keggDOWN$p < 0.05,]
+
+kosdown<- row.names(KeggDOWNsig)
+name <- character(length=0)
+class <- character(length=0) 
+
+for(i in 1:length(kosdown)) {
+  pathway <- system(paste0("curl http://rest.kegg.jp/get/", kosdown[[i]]), intern=TRUE)
+  name[[i]] <- pathway[[2]]
+  class[[i]] <-pathway[[3]]
+}
+
+KeggDOWNsig$name <- name
+KeggDOWNsig$class <- class
+
+kable(KeggDOWNsig[,c(2:5)], table.attr = "style = \"color: black;\"") %>% 
+  kable_styling(font_size = 12, position = "left", full_width = FALSE)  %>% kable_styling("striped") %>% kable_styling(latex_options = "scale_down")
+```
+
+# Pathview - Kegg pathway visualization
+
+NoN 4 pathwview
+
+```{r}
+noN_sig <- res_NoN_wKegg %>% filter(padj < 0.01) %>% select(KO, log2FoldChange)
+noN_sig <- distinct(noN_sig, KO, .keep_all = TRUE)
+row.names(noN_sig)<- noN_sig$KO
+noN_sig<-noN_sig[,2,drop=FALSE]
+```
+
+```{r}
+pathvect<- c("ko00910")
+pv.out<- pathview(gene.data = noN_sig, pathway.id = pathvect, species = "ko", gene.idtype = "KEGG", out.suffix = "NoN", kegg.native = TRUE)
+```
+
+```{r}
+pathvect<- c("ko04072")
+pv.out<- pathview(gene.data = noN_sig, pathway.id = pathvect, species = "ko", gene.idtype = "KEGG", out.suffix = "NoN", kegg.native = TRUE)
+```
+
+NoP 4 pathview
+
+```{r}
+noP_sig <- res_NoP_wKegg %>% filter(padj < 0.01) %>% select(KO, log2FoldChange)
+noP_sig <- distinct(noP_sig, KO, .keep_all = TRUE)
+row.names(noP_sig)<- noP_sig$KO
+noP_sig<-noP_sig[,2,drop=FALSE]
+```
+
+```{r}
+pathvect<- c("ko00910")
+pv.out<- pathview(gene.data = noP_sig, pathway.id = pathvect, species = "ko", gene.idtype = "KEGG", out.suffix = "NoP", kegg.native = TRUE)
+```
+
+ko04072
+
+```{r}
+pathvect<- c("ko04072")
+pv.out<- pathview(gene.data = noP_sig, pathway.id = pathvect, species = "ko", gene.idtype = "KEGG", out.suffix = "NoP", kegg.native = TRUE)
+```
+
+ko04151
+
+```{r}
+pathvect<- c("ko04151")
+pv.out<- pathview(gene.data = noP_sig, pathway.id = pathvect, species = "ko", gene.idtype = "KEGG", out.suffix = "NoP", kegg.native = TRUE)
+```
+
+# some overview plots
+
+## Heatplot 
+
+try different version of heatmap
+
+```{r}
+vsd<-vst(dds, blind = TRUE)
+select <- order(rowMeans(counts(dds,normalized=TRUE)),
+                decreasing=TRUE)[1:20000]
+pheatmap(assay(vsd)[select,], cluster_rows=TRUE, show_rownames=FALSE,
+         cluster_cols=TRUE)
+```
+
+## PCA
+
+```{r}
+data1 <- plotPCA(vsd, returnData=TRUE)
+data1$group<-gsub(" : ","_",as.character(data1$group))
+percentVar1 <- round(100 * attr(data1, "percentVar"))
+
+PCA<-ggplot(data1, aes(PC1, PC2, color = condition))+ theme_bw()+
+  geom_point(size=6, alpha = 0.8) +
+  xlab(paste0("PC1: ",percentVar1[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar1[2],"% variance")) +scale_color_manual(values = c("#B5218E", "#5FC8D8", "#FFC317"))+
+  theme(text = element_text(size=20)) 
+PCA
+```
+
+## Sample Distances
+
+```{r}
+sampleDists <- dist(t(assay(vsd)))
+library("RColorBrewer")
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- vsd$condition
+colnames(sampleDistMatrix) <- vsd$condition
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+```
+
+
+
+# Intersections of differentially expressed genes in noP and noN conditions
+
+```{r}
+noPup <-  row.names(data.frame(res_NoP) %>% filter(padj < 0.01) %>% filter(log2FoldChange >= 1))
+noNup <- row.names(data.frame(res_NoN) %>% filter(padj < 0.01) %>% filter(log2FoldChange >= 1))
+noPdown <- row.names(data.frame(res_NoP) %>% filter(padj < 0.01) %>% filter(log2FoldChange <= -1))
+noNdown <- row.names(data.frame(res_NoN) %>% filter(padj < 0.01) %>% filter(log2FoldChange <= -1))
+```
+
+
+```{r}
+library(ggVennDiagram)
+ggVennDiagram(list("noPup" = noPup, "noNup" = noNup, "noPdown"= noPdown, "noNdown" = noNdown))
+```
+
+## Unique and Intersection DEGs
+
+
+### up in both
+
+```{r}
+sharedUP <- Reduce(intersect, list(noPup, noNup))
+```
+
+```{r}
+sharedUpKeggs <- kegg %>% filter(transcript %in% sharedUP)
+sharedUP_keggpaths <- sharedUpKeggs %>% filter(path %ni% c("NA", "", NA)) %>% count(path)
+```
+
+
+```{r, message = FALSE, results='hide', warning = FALSE}
+ko_paths <- sharedUP_keggpaths$path
+name <- character(length=0)
+class <- character(length=0)
+
+for(i in 1:length(ko_paths)) {
+  if (ko_paths[[i]] %ni% c("NA", "")) {
+    pathway <- system(paste0("curl http://rest.kegg.jp/get/", ko_paths[[i]]), intern=TRUE)
+    name[[i]] <- pathway[[2]]
+    class[[i]] <-pathway[[3]]
+  }
+  else {
+    name[[i]] <- "NA"
+    class[[i]] <- "NA"
+  }
+}
+
+sharedUP_keggpaths$pathname <- name
+sharedUP_keggpaths$pathclass <- class
+```
+
+
+
+### up in N only 
+
+```{r}
+noNup_ONLY <- setdiff(noNup, noPup)
+
+NUpKeggs <- kegg %>% filter(transcript %in% noNup_ONLY)
+keggpaths <- NUpKeggs %>% filter(path %ni% c("NA", "", NA)) %>% count(path)
+```
+
+
+```{r, message = FALSE, results='hide', warning = FALSE}
+ko_paths <- keggpaths$path
+name <- character(length=0)
+class <- character(length=0)
+
+for(i in 1:length(ko_paths)) {
+  if (ko_paths[[i]] %ni% c("NA", "")) {
+    pathway <- system(paste0("curl http://rest.kegg.jp/get/", ko_paths[[i]]), intern=TRUE)
+    name[[i]] <- pathway[[2]]
+    class[[i]] <-pathway[[3]]
+  }
+  else {
+    name[[i]] <- "NA"
+    class[[i]] <- "NA"
+  }
+}
+
+keggpaths$pathname <- name
+keggpaths$pathclass <- class
+```
+
+### up in P only 
+
+```{r}
+noPup_ONLY <- setdiff(noPup, noNup)
+
+PUpKeggs <- kegg %>% filter(transcript %in% noPup_ONLY)
+PUP_keggpaths <- PUpKeggs %>% filter(path %ni% c("NA", "", NA)) %>% count(path)
+```
+
+
+```{r, message = FALSE, results='hide', warning = FALSE}
+ko_paths <- PUP_keggpaths$path
+name <- character(length=0)
+class <- character(length=0)
+
+for(i in 1:length(ko_paths)) {
+  if (ko_paths[[i]] %ni% c("NA", "")) {
+    pathway <- system(paste0("curl http://rest.kegg.jp/get/", ko_paths[[i]]), intern=TRUE)
+    name[[i]] <- pathway[[2]]
+    class[[i]] <-pathway[[3]]
+  }
+  else {
+    name[[i]] <- "NA"
+    class[[i]] <- "NA"
+  }
+}
+
+PUP_keggpaths$pathname <- name
+PUP_keggpaths$pathclass <- class
+```
+
+### down in both
+
+```{r}
+sharedDOWN <- Reduce(intersect, list(noPdown, noNdown))
+```
+
+```{r}
+sharedDOWNKeggs <- kegg %>% filter(transcript %in% sharedDOWN)
+sharedDOWN_keggpaths <- sharedDOWNKeggs %>% filter(path %ni% c("NA", "", NA)) %>% count(path)
+```
+
+
+```{r, message = FALSE, results='hide', warning = FALSE}
+ko_paths <- sharedDOWN_keggpaths$path
+name <- character(length=0)
+class <- character(length=0)
+
+for(i in 1:length(ko_paths)) {
+  if (ko_paths[[i]] %ni% c("NA", "")) {
+    pathway <- system(paste0("curl http://rest.kegg.jp/get/", ko_paths[[i]]), intern=TRUE)
+    name[[i]] <- pathway[[2]]
+    class[[i]] <-pathway[[3]]
+  }
+  else {
+    name[[i]] <- "NA"
+    class[[i]] <- "NA"
+  }
+}
+
+sharedDOWN_keggpaths$pathname <- name
+sharedDOWN_keggpaths$pathclass <- class
+```
+
+### down in N
+
+```{r}
+noNdown_ONLY <- setdiff(noNdown, noPdown)
+
+NdownKeggs <- kegg %>% filter(transcript %in% noNdown_ONLY)
+Ndown_keggpaths <- NdownKeggs %>% filter(path %ni% c("NA", "", NA)) %>% count(path)
+```
+
+```{r, message = FALSE, results='hide', warning = FALSE}
+ko_paths <- Ndown_keggpaths$path
+name <- character(length=0)
+class <- character(length=0)
+
+for(i in 1:length(ko_paths)) {
+  if (ko_paths[[i]] %ni% c("NA", "")) {
+    pathway <- system(paste0("curl http://rest.kegg.jp/get/", ko_paths[[i]]), intern=TRUE)
+    name[[i]] <- pathway[[2]]
+    class[[i]] <-pathway[[3]]
+  }
+  else {
+    name[[i]] <- "NA"
+    class[[i]] <- "NA"
+  }
+}
+
+Ndown_keggpaths$pathname <- name
+Ndown_keggpaths$pathclass <- class
+```
+
+### down in P
+
+```{r}
+noPdown_ONLY <- setdiff( noPdown, noNdown)
+
+PdownKeggs <- kegg %>% filter(transcript %in% noPdown_ONLY)
+Pdown_keggpaths <- PdownKeggs %>% filter(path %ni% c("NA", "", NA)) %>% count(path)
+```
+
+```{r, message = FALSE, results='hide', warning = FALSE}
+ko_paths <- Pdown_keggpaths$path
+name <- character(length=0)
+class <- character(length=0)
+
+for(i in 1:length(ko_paths)) {
+  if (ko_paths[[i]] %ni% c("NA", "")) {
+    pathway <- system(paste0("curl http://rest.kegg.jp/get/", ko_paths[[i]]), intern=TRUE)
+    name[[i]] <- pathway[[2]]
+    class[[i]] <-pathway[[3]]
+  }
+  else {
+    name[[i]] <- "NA"
+    class[[i]] <- "NA"
+  }
+}
+
+Pdown_keggpaths$pathname <- name
+Pdown_keggpaths$pathclass <- class
+```
+
+
+# Orthogroups
+
+```{r}
+library(UpSetR)
+
+orthos <- read.table("Orthogroups.GeneCount.tsv", row.names = 1, header = TRUE) %>% select(starts_with("P"))
+```
+
+```{r}
+orthos[orthos >0] <- 1
+
+datalist<- list()
+
+for (i in 1:10) {
+  newdf <- orthos[i]
+  newdf$ogs <- row.names(newdf)
+  newdf1<- newdf[newdf[1] != 0,]
+  name<- as.character(names(orthos)[i])
+  famlist <- as.vector(as.character(newdf1[[2]]))
+  datalist[[name]] <- famlist
+}
+
+strain_order <- c("P_pouchetii_CCB", "P_ant_jgi", "P_antarctica_caron", "P_antarctica_ccmp1374", "P_globosa_jgi", "P_globosa_ccmp1528", "P_sp_ccmp2710" ,  "P_cordata_ccmp3104", "P_rex_ccmp2000" , "P_jahnii_ccmp2496"  )
+
+species <- c("pouchetii", "antarctica", "antarctica", "antarctica", "globosa",  "globosa",  "globosa" , "cordata",  "rex", "jahnii" )
+
+seqsource<- c("WHOI","jgi", "MMETSP", "MMETSP", "jgi", "oist", "MMETSP", "oist", "MMETSP", "oist")
+
+metaD<- data.frame(cbind(strain_order, species, seqsource))
+
+
+upset(fromList(datalist), sets = rev(strain_order), order.by = "freq", keep.order = TRUE, set.metadata =  list(data = metaD, plots = list(list(type = "matrix_rows", column = "species", colors = c(pouchetii = "grey", antarctica = "blue", globosa = "red", cordata = "yellow", rex = " orange", jahnii = "green")) )))
+```
+
+
+817 pouchetii unique orthogroups 
+
+get gene names from unique orthogroups, look at annotations
+
+ehux
+```{r}
+ehux <- read.table("Orthogroups.GeneCount.tsv", row.names = 1, header = TRUE) %>% filter(E_hux_jgi >0)
+ehuxOGs <- row.names(ehux)
+```
+
+
+```{r}
+
+notPouch<- unique(c(datalist[1][[1]], datalist[2][[1]], datalist[3][[1]], datalist[4][[1]], datalist[5][[1]], datalist[6][[1]], datalist[7][[1]], datalist[9][[1]], datalist[10][[1]], ehuxOGs))
+
+OGS<- read.csv("Orthogroups.csv") %>% filter( Orthogroup %ni%  notPouch) %>% select(Orthogroup, P_pouchetii_CCB) %>% separate(P_pouchetii_CCB, into = c(letters), sep = ",")
+
+geneids<- c(OGS$a, OGS$b, OGS$c, OGS$d, OGS$e, OGS$f, OGS$g, OGS$h, OGS$i, OGS$j, OGS$k, OGS$l, OGS$m, OGS$n, OGS$o, OGS$p, OGS$q, OGS$r, OGS$s, OGS$t, OGS$u, OGS$v, OGS$w, OGS$x, OGS$y, OGS$z)
+
+
+geneids <- sub(" TRINITY.*", "", geneids)
+geneids <- gsub('P_pouchetii_', '', geneids)
+geneids<- trimws(geneids, which = c("both"))
+
+```
+
+length(geneids) = 19058 
+length(unique(geneids)) = 2221
+
+## percent unique OG genes sig diff expressedn in Pstress:
+
+```{r}
+
+noP <- data.frame(res_NoP) #63,532 genes
+noP$trinity <- row.names(noP) 
+noP <- noP %>% filter(trinity %in% geneids) %>% filter(padj <= 0.01) %>% filter(log2FoldChange >= 1 | log2FoldChange <= -1) 
+#696
+696/2220
+#31.5 %
+
+
+noN <- data.frame(res_NoN) 
+noN$trinity <- row.names(noN) 
+noN <- noN %>% filter(trinity %in% geneids) %>% filter(padj <= 0.01) %>% filter(log2FoldChange >= 1 | log2FoldChange <= -1) 
+#1023
+1023/2220
+#46.1%
+```
+
