@@ -1,0 +1,197 @@
+---
+title: "ptown environmental data"
+author: "Maggi Brisbin"
+date: "3/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message = FALSE, warning= FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+
+`%ni%` <- Negate(`%in%`)
+```
+ 
+ 
+CTD data 
+```{r}
+CTD<- read.csv((paste0("ptown_enviro/WN21", 1, "_HydroR.csv")))
+
+for ( i in 2:9) {
+  ctdplus <- data.frame(read.csv(paste0("ptown_enviro/WN21", i, "_HydroR.csv")))
+  CTD<- rbind(CTD, ctdplus)
+}
+```
+ 
+ 
+ TEMP
+ 
+```{r, message = FALSE, warning = FALSE}
+library(lubridate)
+
+temp <- CTD %>% filter(PARAM_CODE == "TEMP") %>% group_by(STAT_ID, EVENT_ID) %>% slice_min(1)
+
+temp$STAT_ARRIV_LOCAL <- as_date(dmy_hms(temp$STAT_ARRIV_LOCAL))
+
+Tplot<- temp %>%  ggplot(aes(x = STAT_ARRIV_LOCAL, y = VALUE, color = STAT_ID)) + geom_point() + geom_path(size =.1) + ylab("Temperature (ºC)") + xlab("") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) + theme(legend.position = "none")
+```
+ 
+ SAL
+ 
+```{r}
+sal<- CTD %>% filter(PARAM_CODE == "SAL") %>% group_by(STAT_ID, EVENT_ID) %>% slice_min(1)
+
+sal$STAT_ARRIV_LOCAL <- as_date(dmy_hms(sal$STAT_ARRIV_LOCAL))
+
+Splot<- sal %>%  ggplot(aes(x = STAT_ARRIV_LOCAL, y = VALUE, color = STAT_ID)) + geom_point() + geom_path(size =.1) + ylab("Salinity (PSU)") + xlab("") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") + theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8))  
+```
+ 
+ 
+ DO
+ 
+```{r}
+do<- CTD %>% filter(PARAM_CODE == "DISS_OXYGEN") %>% group_by(STAT_ID, EVENT_ID) %>% slice_min(1)
+
+do$STAT_ARRIV_LOCAL <- as_date(dmy_hms(do$STAT_ARRIV_LOCAL))
+
+Dplot<- do %>%  ggplot(aes(x = STAT_ARRIV_LOCAL, y = VALUE, color = STAT_ID)) + geom_point() + geom_path(size =.1) + ylab("Dissolved Oxygen (mg/L)") + xlab("") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none")+ theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) 
+```
+ 
+ 
+ Fluor
+ 
+```{r}
+fluor<- CTD %>% filter(PARAM_CODE == "FLU_RAW") %>% group_by(STAT_ID, EVENT_ID) %>% slice_min(1)
+
+fluor$STAT_ARRIV_LOCAL <- as_date(dmy_hms(fluor$STAT_ARRIV_LOCAL))
+
+Fplot<- fluor %>%  ggplot(aes(x = STAT_ARRIV_LOCAL, y = VALUE, color = STAT_ID)) + geom_point() + geom_path(size =.1) + ylab("Fluorescence (µg/L)") + xlab("") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) 
+```
+
+
+
+
+CTD all plots 
+```{r}
+library(patchwork)
+
+(Tplot + theme(axis.text.x=element_blank())) / (Splot + theme(axis.text.x=element_blank())) /( Dplot + theme(axis.text.x=element_blank())) / Fplot
+
+```
+
+NUTRIENTS 
+```{r}
+NUT<- read.csv((paste0("ptown_enviro/WN21", 1, "_nutr.csv")))
+
+for ( i in 2:9) {
+  nutplus <- data.frame(read.csv(paste0("ptown_enviro/WN21", i, "_nutr.csv")))
+  NUT<- rbind(NUT, nutplus)
+}
+
+temp4Date <- temp %>% select(EVENT_ID, STAT_ARRIV_LOCAL)
+
+NUT <- NUT %>% filter(str_detect(SAMPLE_ID, "S$")) %>% separate(SAMPLE_ID, c("Event", "Station", "Depth"))
+
+NUT <- merge(temp4Date, NUT, by = "EVENT_ID")
+```
+
+
+Ntrate+Nitrite 
+
+```{r}
+NN<- NUT %>% filter(PARAM_CODE == "NO3+NO2") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point() +geom_path(size =.1) + xlab("") + ylab("NO3+NO2 (µM)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) 
+```
+
+AMMONIA
+
+```{r}
+AMM<- NUT %>% filter(PARAM_CODE == "NH4") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point() + geom_path(size =.1) + xlab("") + ylab("NH4 (µM)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) 
+```
+
+
+
+PHOS
+```{r}
+Phos <- NUT %>% filter(PARAM_CODE == "PO4") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point() + geom_path(size =.1) + xlab("") + ylab("PO4 (µM)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) 
+```
+
+CHLa 
+
+```{r}
+CHLa<- NUT %>% filter(PARAM_CODE == "CHLA") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point()+geom_path(size =.1) + xlab("") + ylab("Chl a (µg/L)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) 
+```
+
+SILICA
+
+```{r}
+Si<- NUT %>% filter(PARAM_CODE == "SIO4") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point() + geom_path(size =.1) + xlab("") + ylab("SiO4 (µM)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) 
+```
+
+ALL Nuts
+
+```{r}
+
+(NN + theme(axis.text.x=element_blank())) / (AMM + theme(axis.text.x=element_blank())) /( Phos + theme(axis.text.x=element_blank())) / ( Si + theme(axis.text.x=element_blank())) / CHLa
+```
+
+Phytoplankton + Zooplankton
+
+```{r}
+skey <- read.csv("ptown_enviro/HOM_PLANKTON_SPECIES_20211108.csv")
+hapto <- skey %>% filter(GROUP_ID == "HAPTOPHYTES")
+
+for (i in 1:(length(hapto$SPEC_CODE))) {
+  if (substring(hapto$SPEC_CODE[i], 1, 1) == "6") {
+    hapto$SPEC_CODE[i] = (paste0("0",hapto$SPEC_CODE[i]))
+  }
+}
+
+
+ZPL <- read.csv((paste0("ptown_enviro/WN21", 1, "_Zpl.csv")))
+
+for ( i in 2:9) {
+  zplplus <- data.frame(read.csv(paste0("ptown_enviro/WN21", i, "_Zpl.csv")))
+  ZPL<- rbind(ZPL, zplplus)
+}
+
+ZPLs <- ZPL %>% filter(str_detect(SAMPLE_ID, "S$")) %>% separate(SAMPLE_ID, c("Event", "Station", "Depth"))
+
+ZPLs <- merge(temp4Date, ZPLs, by = "EVENT_ID")
+
+ZPLs <- merge(ZPLs, hapto , by = "SPEC_CODE") 
+
+ZPLs <- ZPLs %>% mutate(unscinot = VALUE * 1000000)
+
+
+```
+
+
+```{r}
+Pouch<- ZPLs %>% filter(DESCR == "Phaeocystis pouchetii") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point()  + xlab("") + ylab("P. pouchetii (E6 colonies/L)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) +scale_x_date(date_breaks = "1 month", 
+                 labels=date_format("%b"),
+                 limits = as.Date(c('2021-01-01','2021-12-01')))
+```
+
+```{r}
+Ehux<- ZPLs %>% filter(DESCR == "Emiliania huxleyi") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point() + xlab("") + ylab("E. hux (E6 cells/L)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) +scale_x_date(date_breaks = "1 month", 
+                 labels=date_format("%b"),
+                 limits = as.Date(c('2021-01-01','2021-12-01')))
+```
+
+
+```{r}
+cocco<- ZPLs %>% filter(DESCR == "Coccolithophorid group 1, <10 um diameter") %>% ggplot(aes( x = STAT_ARRIV_LOCAL, y = VALUE, color = Station)) + geom_point() + xlab("") + ylab("Coccolithophorid group 1, \n <10 um diameter (E6 cells/L)") + theme_test() + scale_color_manual(values = c("#D82354", "#FFC317", "#005694")) + theme(legend.position = "none") +theme(plot.margin= margin(t = 0, r = 0, b = 0, l = 0, unit = "pt")) + theme(axis.title=element_text(size=8)) + scale_x_date(date_breaks = "1 month", 
+                 labels=date_format("%b"),
+                 limits = as.Date(c('2021-01-01','2021-12-01')))
+```
+
+
+```{r}
+(Pouch + theme(axis.text.x=element_blank()))  / (Ehux + theme(axis.text.x=element_blank()))  / cocco
+```
+

@@ -1,0 +1,99 @@
+---
+title: "P. Pouchetti growth curves"
+author: "Maggi Brisbin"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: TRUE
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Packages:
+```{r, message = FALSE, warning=FALSE}
+#install.packages("googlesheets4")
+library(googlesheets4) #scrapes google sheets
+library(dplyr) # dataframe manipulation
+library(ggplot2) # plotting package
+library(scales)
+library(tidyr)
+```
+
+# Round 1 
+
+```{r, message = FALSE, warning=FALSE}
+fluor<-as.data.frame(read_sheet("https://docs.google.com/spreadsheets/d/1P1_XcJnF3xPyJ9DkCajBwo1sdpzNvfmA1VQLCgKv_4Q/edit?usp=sharing"))
+
+```
+
+## Average RFU +/- one standard deviation
+
+*Treatments = L1, L1-N (noN), L1-P  (noP)*
+
+```{r, message = FALSE, warning=FALSE}
+  fluor %>% filter(day != 5) %>% 
+  group_by(day, treatment) %>%
+  dplyr::summarize(mean_RFU = mean(RFU), sd = sd(RFU)) %>% 
+  ggplot(aes(day, y=mean_RFU, shape = treatment))+scale_shape_manual(values=c( 21, 22, 23 )) +
+  theme_test()  +
+  geom_errorbar(aes(ymin=mean_RFU-sd, ymax=mean_RFU+sd), width=.1) +
+  geom_line(aes(color = treatment)) +
+  geom_point(size =2, fill = "white") +
+  ylab("RFU") + xlab("Time (Days)") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks= pretty_breaks()) + ggtitle("P. pouchetii - rnd1") +  geom_vline(xintercept = 13.1, linetype="dashed", color = "grey")
+```
+
+*Dashed grey line = when N and P was added to -N and -P cultures, respectively.*
+
+## Individual replicate growth-curves
+
+```{r, message = FALSE, warning=FALSE}
+ fluor %>% filter(day != 5) %>% 
+  ggplot(aes(day, y=RFU, shape = treatment))+scale_shape_manual(values=c( 21, 22, 23 )) +
+  theme_test() + facet_grid( treatment ~ rep)+
+  geom_line(aes(color = treatment)) +
+  ylab("RFU") + xlab("Time (Days)") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks= pretty_breaks()) + theme(legend.position = "none")
+```
+
+# Round 2
+
+```{r, message = FALSE, warning=FALSE}
+rnd2<-as.data.frame(read_sheet("https://docs.google.com/spreadsheets/d/12L_TqflbLYxIUsuFIPixS9WWMurExYCPvQ3x1i3fIj8/edit?usp=sharing"))
+```
+
+## Average RFU +/- one standard deviation
+
+*Treatments = L1, L1-N (N), L1 w/ 10%P  (P)*
+
+```{r, message = FALSE, warning=FALSE}
+  rnd2 %>% drop_na(Rfu) %>% 
+  group_by(Day, Treat) %>%
+  dplyr::summarize(mean_RFU = mean(Rfu), sd = sd(Rfu)) %>% 
+  ggplot(aes(Day, y=mean_RFU, shape = Treat))+scale_shape_manual(values=c( 21, 22, 23 )) +
+  theme_test()  +
+  geom_errorbar(aes(ymin=mean_RFU-sd, ymax=mean_RFU+sd), width=.1) +
+  geom_line(aes(color = Treat)) +
+  geom_point(size =2, fill = "white") +
+  ylab("RFU") + xlab("Time (Days)") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks= pretty_breaks()) + ggtitle("P. pouchetii - rnd 2 (10%P)") 
+```
+
+## Individual replicate growth-curves
+
+```{r, message = FALSE, warning=FALSE}
+rnd2 %>% 
+  ggplot(aes(Day, y=Rfu, shape = Treat))+scale_shape_manual(values=c( 21, 22, 23 )) +
+  theme_test() + facet_grid( Treat ~ Rep)+
+  geom_line(aes(color = Treat)) +
+  ylab("RFU") + xlab("Time (Days)") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks= pretty_breaks()) + theme(legend.position = "none")
+```
+

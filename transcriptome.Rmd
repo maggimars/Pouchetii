@@ -1,0 +1,58 @@
+---
+title: "transcriptome"
+author: "Maggi Brisbin"
+date: "2/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r}
+eukulele <- read.delim("Trinity_longestIsos_clustered95_transdecoder-estimated-taxonomy.out") %>% separate(full_classification, into = "domain", remove = FALSE)
+
+bact<- eukulele %>% filter(domain == "Bacteria") %>% select(transcript_name)
+
+write.table(bact,"bacterialseqs.txt", row.names=FALSE,sep="\t", quote = FALSE)
+```
+
+```{r}
+nobact <- eukulele %>% filter(domain %ni% c("Bacteria", "Archaea", "")) %>% select(transcript_name)
+
+write.table(nobact,"eukseqs.txt", row.names=FALSE,sep="\t", quote = FALSE)
+```
+
+euk only:
+
+################################
+##Counts of transcripts, etc.
+################################
+Total trinity 'genes':	63554
+Total trinity transcripts:	63555
+Percent GC: 67.68
+
+########################################
+Stats based on ALL transcript contigs:
+########################################
+
+	Contig N10: 2256
+	Contig N20: 1647
+	Contig N30: 1335
+	Contig N40: 1110
+	Contig N50: 927
+
+	Median contig length: 519
+	Average contig: 731.77
+	Total assembled bases: 46507722
+
+
+
